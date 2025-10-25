@@ -1,70 +1,88 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
 type Task = {
+  _id: string;
   text: string;
   completed: boolean;
 };
 
-type Filter = "all" | "active" | "completed";
-
 export default function Home() {
-  const [task, setTask] = useState<string>("");
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("tasks");
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
-  });
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editedText, setEditedText] = useState<string>("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [task, setTask] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  // Fetch tasks from MongoDB
+  const fetchTasks = async () => {
+    const res = await fetch("/api/tasks");
+    const data = await res.json();
+    setTasks(data);
+  };
 
   useEffect(() => {
-    localStorage.setItem("tasks", JSON.stringify(tasks));
-  }, [tasks]);
+    fetchTasks();
+  }, []);
 
-  const addTask = () => {
-    if (task.trim() === "") return;
-    setTasks([...tasks, { text: task, completed: false }]);
+  // Add a new task
+  const addTask = async () => {
+    if (!task.trim()) return;
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: task }),
+    });
+    const newTask = await res.json();
+    setTasks([newTask, ...tasks]);
     setTask("");
   };
 
-  const deleteTask = (index: number) => {
-    setTasks(tasks.filter((_, i) => i !== index));
+  // ✅ Toggle completion state of a task
+  const toggleComplete = async (id: string, currentState: boolean) => {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: !currentState }),
+    });
+
+    if (res.ok) {
+      const updated = await res.json();
+      setTasks((prev) => prev.map((t) => (t._id === id ? updated : t)));
+    }
   };
 
-  const toggleComplete = (index: number) => {
-    setTasks(
-      tasks.map((t, i) =>
-        i === index ? { ...t, completed: !t.completed } : t
-      )
-    );
+  // Delete a task
+  const deleteTask = async (id: string) => {
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    setTasks(tasks.filter((t) => t._id !== id));
   };
 
-  const startEditing = (index: number, text: string) => {
-    setEditingIndex(index);
-    setEditedText(text);
+  // Start editing a task
+  const startEditing = (id: string, text: string) => {
+    setEditId(id);
+    setEditText(text);
   };
 
-  const saveEdit = (index: number) => {
-    if (editedText.trim() === "") return;
-    setTasks(
-      tasks.map((t, i) =>
-        i === index ? { ...t, text: editedText } : t
-      )
-    );
-    setEditingIndex(null);
-    setEditedText("");
+  // Save edited task
+  const saveEdit = async (id: string) => {
+    if (!editText.trim()) return;
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: editText }),
+    });
+
+    if (res.ok) {
+      const updated = await res.json();
+      setTasks((prev) => prev.map((t) => (t._id === id ? updated : t)));
+      setEditId(null);
+      setEditText("");
+    }
   };
 
-  const cancelEdit = () => {
-    setEditingIndex(null);
-    setEditedText("");
-  };
-
+  // Filter tasks for the selected tab
   const filteredTasks = tasks.filter((t) => {
     if (filter === "active") return !t.completed;
     if (filter === "completed") return t.completed;
@@ -76,7 +94,7 @@ export default function Home() {
       <div className="bg-white rounded-2xl shadow-md w-full max-w-md p-6">
         <h1 className="text-2xl font-bold mb-4 text-center">📝 To-Do List</h1>
 
-        {/* Add Task */}
+        {/* Add New Task */}
         <div className="flex mb-4">
           <input
             type="text"
@@ -93,68 +111,49 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Filters */}
-        <div className="flex justify-center gap-3 mb-4">
-          <button
-            onClick={() => setFilter("all")}
-            className={`px-3 py-1 rounded-lg text-sm ${
-              filter === "all"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 hover:bg-gray-300"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setFilter("active")}
-            className={`px-3 py-1 rounded-lg text-sm ${
-              filter === "active"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 hover:bg-gray-300"
-            }`}
-          >
-            Active
-          </button>
-          <button
-            onClick={() => setFilter("completed")}
-            className={`px-3 py-1 rounded-lg text-sm ${
-              filter === "completed"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 hover:bg-gray-300"
-            }`}
-          >
-            Completed
-          </button>
+        {/* Filter Tabs */}
+        <div className="flex justify-around mb-4">
+          {["all", "active", "completed"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setFilter(t as any)}
+              className={`px-3 py-1 rounded-md text-sm font-medium ${
+                filter === t ? "bg-blue-600 text-white" : "bg-gray-200"
+              }`}
+            >
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
         </div>
 
         {/* Task List */}
         <ul className="space-y-2">
-          {filteredTasks.map((t, index) => (
+          {filteredTasks.map((t) => (
             <li
-              key={index}
+              key={t._id}
               className="flex justify-between items-center bg-gray-50 p-2 rounded-lg"
             >
               <div className="flex items-center gap-2 flex-grow">
+                {/* ✅ Checkbox toggles completion */}
                 <input
                   type="checkbox"
                   checked={t.completed}
-                  onChange={() => toggleComplete(index)}
-                  className="w-4 h-4"
+                  onChange={() => toggleComplete(t._id, t.completed)}
+                  className="cursor-pointer accent-blue-600"
                 />
 
-                {editingIndex === index ? (
+                {/* Editable / Static text */}
+                {editId === t._id ? (
                   <input
                     type="text"
-                    value={editedText}
-                    onChange={(e) => setEditedText(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveEdit(index)}
-                    className="flex-grow border rounded p-1 text-sm"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    className="flex-grow border rounded p-1 outline-none"
                     autoFocus
                   />
                 ) : (
                   <span
-                    onDoubleClick={() => startEditing(index, t.text)}
-                    className={`cursor-pointer ${
+                    className={`flex-grow ${
                       t.completed ? "line-through text-gray-400" : ""
                     }`}
                   >
@@ -163,38 +162,29 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                {editingIndex === index ? (
-                  <>
-                    <button
-                      onClick={() => saveEdit(index)}
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      💾
-                    </button>
-                    <button
-                      onClick={cancelEdit}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      ✖
-                    </button>
-                  </>
+              {/* Action Buttons */}
+              <div className="flex gap-2 ml-2">
+                {editId === t._id ? (
+                  <button
+                    onClick={() => saveEdit(t._id)}
+                    className="text-green-600 hover:text-green-800"
+                  >
+                    💾
+                  </button>
                 ) : (
-                  <>
-                    <button
-                      onClick={() => startEditing(index, t.text)}
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => deleteTask(index)}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      🗑
-                    </button>
-                  </>
+                  <button
+                    onClick={() => startEditing(t._id, t.text)}
+                    className="text-blue-500 hover:text-blue-700"
+                  >
+                    ✎
+                  </button>
                 )}
+                <button
+                  onClick={() => deleteTask(t._id)}
+                  className="text-red-500 hover:text-red-700"
+                >
+                  ✖
+                </button>
               </div>
             </li>
           ))}
@@ -202,13 +192,7 @@ export default function Home() {
 
         {/* Empty State */}
         {filteredTasks.length === 0 && (
-          <p className="text-gray-400 text-center mt-4">
-            {filter === "completed"
-              ? "No completed tasks."
-              : filter === "active"
-              ? "No active tasks."
-              : "No tasks yet!"}
-          </p>
+          <p className="text-gray-400 text-center mt-4">No tasks found!</p>
         )}
       </div>
     </main>
